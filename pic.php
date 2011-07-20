@@ -5,130 +5,92 @@
  *
  * @since 20.07.2011
  *
- * @author blade39 <blade39@kolosstudio.ru>
+ * @author blade39 <blade39@kolosstudio.ru>,
  * @version 1.1
  */
 
+define('PIC_CACHE_SITE_ROOT',$_SERVER['DOCUMENT_ROOT']);
 define('PIC_CACHE_PATH',$_SERVER['DOCUMENT_ROOT'].'/bitrix/cache/Pic');
+define('PIC_CACHE_PATH_URL','/bitrix/cache/Pic');
+define('PIC_CACHE_DEFAULT_IMAGE','');
 
 function Pic($params)
 {
 	if($params['src']=='') return '';
-	$sSizeFile='';
-	if($params['width']!='') $sSizeFile.=intval($params['width']);
-	$sSizeFile.='x';
-	if($params['height']!='') $sSizeFile.=intval($params['height']);
-	$cacheDir=PIC_CACHE_PATH.$params['src'].'/';
-	if(!file_exists($cacheDir))
-		@mkdir(
-	$cacheFile='/uploads/PicCache'.$params['src'].'/'.$sSizeFile.'.jpeg';
 	$attributes=array(
 		'src',
 		'mode',
 		'default',
 		'lifetime',
 	);
-	/**
-	 * @todo Убрать эту хрень к чертям собачьим
-	 */
-	/*if(!isset($params['cache_time'])||intval($params['cache_time'])<=0)
+	if(file_exists(PIC_CACHE_SITE_ROOT.$params['src']))
 	{
-		$obConfig=new CConfigParser('main');
-		$ks_config=$obConfig->LoadConfig();
-		$params['lifetime'] = $ks_config['lifetime'];
-	}*/
-	try
-	{
-		if(file_exists(ROOT_DIR.$cacheFile))// && (filectime(ROOT_DIR.$cacheFile)+$params['lifetime'] >= time()))
-		{
-			$res='<img src="'.$cacheFile.'"';
-			foreach($params as $key=>$value)
-			{
-				if(!in_array($key,$attributes))
-				{
-					$res.=' '.$key.'="'.$value.'"';
-				}
-			}
-			$res.='/>';
-			return $res;
-		}
-		else
+		$sSizeFile='';
+		if($params['width']!='') $sSizeFile.=intval($params['width']);
+		$sSizeFile.='x';
+		if($params['height']!='') $sSizeFile.=intval($params['height']);
+		$cacheDir=PIC_CACHE_PATH.$params['src'].'/';
+		$cacheFile=PIC_CACHE_PATH_URL.$params['src'].'/'.$sSizeFile.'.jpeg';
+		$cachePath=PIC_CACHE_PATH.$params['src'].'/'.$sSizeFile.'.jpeg';
+		if(!file_exists($cachePath))
 		{
 			//Такой файл не был закеширован, значит надо его создавать
-			if(file_exists(ROOT_DIR.$params['src']))
+			try
 			{
-				include_once(MODULES_DIR.'/main/libs/class.ImageResizer.php');
-				$obImage=new ImageResizer($params['src']);
-				$obImage->isCreateDir=false;
-				$obImage->isSave=false;
-				$bKeepRatio=false;
-				$bKeepRatioWb=true;
+				$obImage=new CImageResizer(PIC_CACHE_SITE_ROOT.$params['src']);
+				$obMode=new CScale(intval($params['width']),intval($params['height']));
 				if($params['mode']=='stretch')
-				{
-					$bKeepRatio=false;
-					$bKeepRatioWb=false;
-				}
+					$obMode=new CRectGenerator(intval($params['width']),intval($params['height']));
 				elseif($params['mode']=='crop')
+					$obMode=new CCropToCenter(intval($params['width']),intval($params['height']));
+				elseif($params['mode']=='croptop')
+					$obMode=new CCropToTop(intval($params['width']),intval($params['height']));
+				if($obImage->Resize($obMode))
 				{
-					$bKeepRatio=true;
-					$bKeepRatioWb=true;
-				}
-				elseif($params['mode']=='resize')
-				{
-					$bKeepRatio=true;
-					$bKeepRatioWb=false;
-				}
-				$obImage->Resize(intval($params['width']),intval($params['height']),$bKeepRatio,$bKeepRatioWb,false);
-				if(!file_exists($cacheDir))
-				{
-					$KS_FS->makedir($cacheDir);
-				}
-				if(!$obImage->Save(ROOT_DIR.$cacheFile))
-				{
-					throw new CError('SYSTEM_FILE_NOT_FOUND_OR_NOT_WRITABLE',$cacheFile);
-				}
-				chmod(ROOT_DIR.$cacheFile,0655);
-				$res='<img src="'.$cacheFile.'"';
-				foreach($params as $key=>$value)
-				{
-					if(!in_array($key,$attributes))
+					if(!file_exists($cacheDir))
+						if(!@mkdir($cacheDir,0755,true)) return '';
+					if($obImage->Save($cachePath))
 					{
-						$res.=' '.$key.'="'.$value.'"';
+						chmod($cachePath,0655);
+					}
+					else
+					{
+						throw new Exception('SYSTEM_CANT_SAVE');
 					}
 				}
-				$res.='/>';
-				return $res;
+				else
+				{
+					throw new Exception('SYSTEM_CANT_RESIZE');
+				}
 			}
-			elseif($params['default']!='')
+			catch (Exception $e)
 			{
-				$res='<img src="'.$params['default'].'"';
-				foreach($params as $key=>$value)
-				{
-					if(!in_array($key,$attributes))
-					{
-						$res.=' '.$key.'="'.$value.'"';
-					}
-				}
-				$res.='/>';
-				return $res;
+				$cacheFile=$params['src'];
 			}
-			throw new CError('SYSTEM_FILE_NOT_FOUND',0,$params['src']);
 		}
 	}
-	catch(CError $e)
+	elseif($params['default']!='')
 	{
-		return $e->__toString();
+		$cacheFile=$params['default'];
 	}
+	elseif(PIC_CACHE_DEFAULT_IMAGE!='')
+	{
+		$cacheFile=PIC_CACHE_DEFAULT_IMAGE;
+	}
+	else
+	{
+		return '';
+	}
+	$res='<img src="'.$cacheFile.'"';
+	foreach($params as $key=>$value)
+	{
+		if($params['keepSmall']=='Y' && ($key=='width' || $key=='height')) continue;
+		if(!in_array($key,$attributes))
+			$res.=' '.$key.'="'.$value.'"';
+	}
+	$res.='/>';
+	return $res;
 }
-
-function widget_params_Pic($params)
-{
-
-}
-?>
-<?php
-
-include_once MODULES_DIR.'/photogallery/libs/class.CRectGenerator.php';
 
 /**
  * Класс работы с изображениями v2.6
@@ -137,7 +99,7 @@ include_once MODULES_DIR.'/photogallery/libs/class.CRectGenerator.php';
  * Автор: Егор Болгов
  */
 
-class CImageResizer extends CBaseObject
+class CImageResizer
 {
 	protected $sFilename;
 	protected $iWidth;
@@ -160,7 +122,7 @@ class CImageResizer extends CBaseObject
 	{
 		$this->sFilename = $inputfile;
 		if(!is_file($inputfile))
-			throw new CError('SYSTEM_NOT_A_FILE');
+			throw new Exception('SYSTEM_NOT_A_FILE');
 
 		$info = pathinfo($inputfile); // Информация о файле
 		list($width, $height, $type, $attr) = getimagesize($this->sFilename);
@@ -170,10 +132,31 @@ class CImageResizer extends CBaseObject
 		$this->iType = $type;
 		$this->obRectangle=false;
 
-		if($this->iWidth*$this->iHeight*4>(GetMaxMemory()-1024*1024))
+		if($this->iWidth*$this->iHeight*4>(CImageResizer::GetMaxMemory()-1024*1024))
 		{
-			throw new CError(SYSTEM_NO_MEMORY,1,($this->width_orig*$this->height_orig*4).'/'.(GetMaxMemory()-1024*1024));
+			throw new Exception(SYSTEM_NO_MEMORY,1,($this->width_orig*$this->height_orig*4).'/'.(CImageResizer::GetMaxMemory()-1024*1024));
 		}
+	}
+
+	/**
+	 * Метод определяет максимальный доступный объём памяти для обработки изображения
+	 */
+	static function GetMaxMemory()
+	{
+		$val=ini_get('memory_limit');
+		$val = trim($val);
+		$last = strtolower($val[strlen($val)-1]);
+		switch($last) {
+			// The 'G' modifier is available since PHP 5.1.0
+			case 'g':
+				$val *= 1024;
+			case 'm':
+				$val *= 1024;
+			case 'k':
+				$val *= 1024;
+		}
+
+		return $val;
 	}
 
 	/**
@@ -202,7 +185,7 @@ class CImageResizer extends CBaseObject
 		else
 		{
 			if($image_w == 0 && $image_h == 0)
-				throw new CError('WH by zero');
+				throw new Exception('WH by zero');
 			$this->obRectangle=new CRectGenerator($this->iWidth,$this->iHeight,$image_w,$image_h);
 		}
 		$this->obRectangle->SetSourceSize($this->iWidth,$this->iHeight);
@@ -212,7 +195,7 @@ class CImageResizer extends CBaseObject
 			{
 				case 2: $im = imagecreatefromjpeg($this->sFilename);  break;
 				case 3: $im = imagecreatefrompng($this->sFilename); break;
-				default:  throw new CError('PHOTOGALLERY_WRONG_FILE', E_USER_WARNING);  break;
+				default:  throw new Exception('PHOTOGALLERY_WRONG_FILE', E_USER_WARNING);  break;
 			}
 			$newImg = imagecreatetruecolor($arCoord['w1'], $arCoord['h1']);
 			if(imagecopyresampled($newImg, $im, $arCoord['x1'], $arCoord['y1'], $arCoord['x'], $arCoord['y'], $arCoord['w1'],$arCoord['h1'], $arCoord['w'], $arCoord['h']))
@@ -224,68 +207,6 @@ class CImageResizer extends CBaseObject
 			imagedestroy($im);
 		}
 		return false;
-
-		if($image_ratio_wb == true)
-		{
-			$wb_type = 0;
-
-			if($this->width_orig > $this->height_orig || $this->width_orig == $this->height_orig)
-			{
-				$aspect_ratio = (float) $this->height_orig / $this->width_orig;
-				$image_h_r = round($image_w * $aspect_ratio);
-				$image_w_r = $image_w;
-				$wb_type = 1;
-				if($image_h < $image_h_r)
-				{
-					$aspect_ratio = (float) $this->width_orig / $this->height_orig;
-					$image_w_r = round($image_h * $aspect_ratio);
-					$image_h_r = $image_h;
-					$wb_type = 2;
-				}
-			}
-			elseif($this->width_orig < $this->height_orig)
-			{
-				$aspect_ratio = (float) $this->width_orig / $this->height_orig;
-				$image_w_r = round($image_h * $aspect_ratio);
-				$image_h_r = $image_h;
-				$wb_type = 2;
-				if($image_w < $image_w_r)
-				{
-					$aspect_ratio = (float) $this->height_orig / $this->width_orig;
-					$image_h_r = round($image_w * $aspect_ratio);
-					$image_w_r = $image_w;
-					$wb_type = 1;
-				}
-			}
-			$newImg_first = imagecreatetruecolor($image_w_r, $image_h_r);
-			imagecopyresampled($newImg_first, $im, 0, 0, 0, 0, $image_w_r, $image_h_r, $this->width_orig, $this->height_orig);
-
-
-			$newImg = imagecreatetruecolor($image_w, $image_h);
-			if($this->border_color != "")
-			{
-				$colors = explode(" ",$this->border_color);
-				$r = $colors[0];
-				$g = $colors[1];
-				$b = $colors[2];
-			} else { $r = 255; $g = 255; $b = 255; }
-
-			$background_color = imagecolorallocate($newImg, $r, $g, $b);
-			imagefill($newImg, 0, 0, $background_color);
-
-			if($wb_type == 1)
-			{
-				$one = round(($image_h - $image_h_r)/2);
-
-				imagecopyresampled($newImg, $newImg_first, 0, round(($image_h - $image_h_r)/2), 0, 0, $image_w_r, $image_h_r, $image_w_r, $image_h_r);
-			}
-
-			if($wb_type == 2)
-			{
-				imagecopyresampled($newImg, $newImg_first,  round(($image_w - $image_w_r)/2), 0, 0, 0, $image_w_r, $image_h_r, $image_w_r, $image_h_r);
-			}
-
-		}
 	}
 
 	/**
@@ -296,7 +217,7 @@ class CImageResizer extends CBaseObject
 		if($this->newImage)
 		{
 			$res=@imagejpeg($this->newImage,$path,$quality);
-			if(!imagedestroy($this->newImage)) throw new CError('SYSTEM_STRANGE_ERROR');
+			if(!imagedestroy($this->newImage)) throw new Exception('SYSTEM_STRANGE_ERROR');
 			$this->newImage=0;
 			return $res;
 		}
@@ -304,9 +225,6 @@ class CImageResizer extends CBaseObject
 	}
 }
 
-<?php
-
-if( !defined('KS_ENGINE') ) {die("Hacking attempt!");}
 
 /**
  * Класс выполняет генерацию координат для ресайза картинки
