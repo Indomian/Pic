@@ -14,7 +14,7 @@ define('PIC_CACHE_PATH',$_SERVER['DOCUMENT_ROOT'].'/bitrix/cache/Pic');
 define('PIC_CACHE_PATH_URL','/bitrix/cache/Pic');
 define('PIC_CACHE_DEFAULT_IMAGE','');
 
-function Pic($params)
+function Pic($params,$bOnlyLink=false)
 {
 	if($params['src']=='') return '';
 	$attributes=array(
@@ -81,6 +81,7 @@ function Pic($params)
 	{
 		return '';
 	}
+	if($bOnlyLink) return $cacheFile;
 	$res='<img src="'.$cacheFile.'"';
 	foreach($params as $key=>$value)
 	{
@@ -89,6 +90,7 @@ function Pic($params)
 			$res.=' '.$key.'="'.$value.'"';
 	}
 	$res.='/>';
+
 	return $res;
 }
 
@@ -125,8 +127,14 @@ class CImageResizer
 			throw new Exception('SYSTEM_NOT_A_FILE');
 
 		$info = pathinfo($inputfile); // Информация о файле
-		list($width, $height, $type, $attr) = getimagesize($this->sFilename);
-
+		if($arImageSize=getimagesize($this->sFilename))
+		{
+			list($width, $height, $type, $attr) = $arImageSize;
+		}
+		else
+		{
+			throw new Exception('SYSTEM_NOT_A_IMAGE');
+		}
 		$this->iWidth = $width;
 		$this->iHeight = $height;
 		$this->iType = $type;
